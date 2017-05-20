@@ -1,111 +1,141 @@
+
+import com.healthmarketscience.rmiio.SerializableInputStream;
+import com.healthmarketscience.rmiio.SerializableOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Serializable;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-public class ServerStorage extends UnicastRemoteObject implements ServerStorageInt{
-	private String workingDirectory;
-	private String workingFile;
-	protected ServerStorage() throws RemoteException{
-		super();
-	}
-	@Override
-	public void setWorkingDirectory(String dir) throws RemoteException {
-		// TODO Auto-generated method stub
-		workingDirectory = dir;
-		
-	}
-	@Override
-	public void setWorkingFile(String file) throws RemoteException {
-		// TODO Auto-generated method stub
-		workingFile = file;
-	}
-	
-	
-	@Override
-	public String getWorkingDirectory() throws RemoteException {
-		return workingDirectory;
-		
-	}
-	@Override
-	public String getWorkingFile() throws RemoteException {
-		// TODO Auto-generated method stub
-		return workingFile;
-	}
-	@Override
-	public void sendFilesToClients(String filePath,ClientStorageInt c) throws RemoteException {
-		// TODO Auto-generated method stub
-		try {
-			File f = new File(filePath);
-//			String[] arr = filePath.split("\\");
-//			String fileName = arr[arr.length-1];
-			String fileName = f.getName();
-			FileInputStream in = new FileInputStream(f);
-			byte[] data = new byte[1024*1024];
-			int len = in.read(data);
-			while(len>0){
-				c.receiveData(fileName, data, len);
-				len = in.read(data);
-			}
-			in.close();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-	}
-	@Override
-	public void receiveData(String fileName, byte[] data, int len) throws RemoteException {
-		// TODO Auto-generated method stub
-		try {
-			String filePath = workingDirectory +"\\"+ fileName;
-			System.out.println(filePath);
-			File f = new File(filePath);
-			f.createNewFile();
-			FileOutputStream out = new FileOutputStream(f, true);
-			out.write(data, 0, len);
-			out.flush();
-			out.close();
-			System.out.println("Done writing data...");
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-		
-	}
-	
-	@Override
-	public void synchronize(ClientStorageInt c) throws RemoteException {
-		// TODO Auto-generated method stub
-		File serverDir = new File(workingDirectory);
-		File[] svListFile = serverDir.listFiles();
-		
-//		File clientDir = new File("ClientStorage");
-		File[] cListFile = c.getListFile();
-		
-		HashSet<File> serverHs = new HashSet<>();
-		for(File f:svListFile){
-			serverHs.add(f);
-		}
-		
-		HashSet<File> clientHs = new HashSet<>();
-		for(File f:cListFile){
-			clientHs.add(f);
-		}
-		
-		HashSet<File> temp = (HashSet<File>) serverHs.clone();
-		temp.retainAll(clientHs);
-		serverHs.removeAll(temp);
-		clientHs.removeAll(temp);
-		
-		for(File f: serverHs){
-			sendFilesToClients(f.getPath(),c);
-		}
-		for(File f: clientHs){
-			c.sendFilesToServers(f.getPath(), this);
-		}
-	}
-	
-	
+public class ServerStorage extends UnicastRemoteObject implements ServerStorageInt, Serializable {
+
+    private File workingDirectory;
+    boolean syncing;
+
+    protected ServerStorage() throws RemoteException {
+        super();
+        syncing = false;
+    }
+
+    private static final long serialVersionUID = 1L;
+
+    @Override
+    public void setWorkingDirectory(File dir) throws RemoteException {
+        // TODO Auto-generated method stub
+        workingDirectory = dir;
+
+    }
+
+    @Override
+    public File getWorkingDirectory() throws RemoteException {
+        return workingDirectory;
+
+    }
+
+    @Override
+    public void setSyncing(boolean status) throws RemoteException {
+        this.syncing = status;
+    }
+
+    @Override
+    public boolean getSyncing() throws RemoteException {
+        return syncing;
+    }
+
+    @Override
+    public String[] getListFiles() throws RemoteException {
+        return workingDirectory.list();
+    }
+
+    @Override
+    public InputStream getFileInputStream(File f) throws Exception {
+        return new SerializableInputStream(new FileInputStream(f));
+    }
+
+    @Override
+    public OutputStream getFileOutputStream(File f) throws Exception {
+        return new SerializableOutputStream(new FileOutputStream(f));
+    }
+
+    @Override
+    public boolean deleteFiles(File f) throws RemoteException {
+        return f.delete();
+
+    }
+
+    @Override
+    public void sendFilesToClients(File f, ClientStorageInt c) throws RemoteException {
+
+        // TODO Auto-generated method stub
+        try {
+            InputStream is = this.getFileInputStream(f);
+            OutputStream os = c.getFileOutputStream(new File(c.getWorkingDirectory() + "//" + f.getName()));
+            byte[] data = new byte[16 * 1024 * 1024];
+            int len = 0;
+            while ((len = is.read(data)) >= 0) {
+                os.write(data, 0, len);
+            }
+            is.close();
+            os.close();
+        } catch (Exception ex) {
+            Logger.getLogger(ServerStorage.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+    }
+
+    @Override
+    public void synchronize(ClientStorageInt c) throws RemoteException {
+        // TODO Auto-generated method stub
+        File[] svListFile = workingDirectory.listFiles();
+        System.out.println("Syncing...");
+        LinkedList<FileInfo> ll = c.getListFileInfo();
+        Iterator<FileInfo> it = ll.iterator();
+        while (it.hasNext()) {
+            FileInfo fi = it.next();
+//			System.out.println(fi.getPath()+" - "+fi.getName()+" - "+fi.getLastModified()+" - "+fi.getLength());
+            boolean exist = false;
+            for (File f : svListFile) {
+                if (fi.getName().equals(f.getName())) {
+                    exist = true;
+                    if (fi.getLastModified() > f.lastModified() && fi.getLength()!= f.length()) {
+//                        f.delete();
+                        c.sendFilesToServers(new File(fi.getPath()), this);
+                    } else if (f.lastModified() > fi.getLastModified() && fi.getLength()!= f.length()) {
+//                        c.deleteFile(new File(fi.getPath()));
+                        try {
+                            sendFilesToClients(f, c);
+                        } catch (Exception ex) {
+                            Logger.getLogger(ServerStorage.class.getName()).log(Level.SEVERE, null, ex);
+                        }
+                    }
+                    break;
+                }
+            }
+            if (!exist) {
+                c.sendFilesToServers(new File(fi.getPath()), this);
+            }
+        }
+        for (File f : svListFile) {
+            Iterator<FileInfo> it2 = ll.iterator();
+            boolean exist = false;
+            while (it.hasNext()) {
+                FileInfo fi = it.next();
+                if (fi.getName().equals(f.getName())) {
+                    exist = true;
+                    break;
+                }
+            }
+            if (!exist) {
+                sendFilesToClients(f, c);
+            }
+        }
+    }
+
 }
