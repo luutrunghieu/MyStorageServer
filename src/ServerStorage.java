@@ -93,18 +93,19 @@ public class ServerStorage extends UnicastRemoteObject implements ServerStorageI
     @Override
     public void synchronize(ClientStorageInt c) throws RemoteException {
         // TODO Auto-generated method stub
-        File[] svListFile = workingDirectory.listFiles();
+        
+        File[] svListFile = workingDirectory.listFiles();// luu ds cac file trong thuc luu tren serverStorage
         System.out.println("Syncing...");
-        LinkedList<FileInfo> ll = c.getListFileInfo();
-        Iterator<FileInfo> it = ll.iterator();
+        LinkedList<FileInfo> ll = c.getListFileInfo(); // luu thong tin cac file cua client: name, last update, size
+        Iterator<FileInfo> it = ll.iterator(); //
         while (it.hasNext()) {
             FileInfo fi = it.next();
 //			System.out.println(fi.getPath()+" - "+fi.getName()+" - "+fi.getLastModified()+" - "+fi.getLength());
             boolean exist = false;
-            for (File f : svListFile) {
+            for (File f : svListFile) { // trang 13
                 if (fi.getName().equals(f.getName())) {
                     exist = true;
-                    if (fi.getLastModified() > f.lastModified() && fi.getLength()!= f.length()) {
+                    if (fi.getLastModified() > f.lastModified() && fi.getLength()!= f.length()) { // neu sửa chữ 'a' thành 'b' thì làm ntn?
 //                        f.delete();
                         c.sendFilesToServers(new File(fi.getPath()), this);
                     } else if (f.lastModified() > fi.getLastModified() && fi.getLength()!= f.length()) {
@@ -118,7 +119,7 @@ public class ServerStorage extends UnicastRemoteObject implements ServerStorageI
                     break;
                 }
             }
-            if (!exist) {
+            if (!exist) { // tao file moi ở client up len server
                 c.sendFilesToServers(new File(fi.getPath()), this);
             }
         }
